@@ -9,7 +9,7 @@ root_dir = os.path.dirname(__file__)
 if root_dir:
     os.chdir(root_dir)
 
-for dirpath, dirnames, filenames in os.walk('raven'):
+for dirpath, dirnames, filenames in os.walk('ravenjs'):
     # Ignore dirnames that start with '.'
     for i, dirname in enumerate(dirnames):
         if dirname.startswith('.'):
@@ -20,17 +20,17 @@ for dirpath, dirnames, filenames in os.walk('raven'):
             pkg = pkg.replace(os.path.altsep, '.')
         packages.append(pkg)
     elif filenames:
-        prefix = dirpath[len('raven/'):]
+        prefix = dirpath[len('ravenjs/'):]
         for f in filenames:
             data_files.append(os.path.join(prefix, f))
 
 
 setup(
-    name='django-staticfiles-raven',
+    name='django-staticfiles-ravenjs',
     version=open("./VERSION").read(),
-    description='raven meets Django staticfiles',
+    description='ravenjs meets Django staticfiles',
     author='Chad Masso',
     author_email='chadm@indeed.com',
     packages=packages,
-    package_data={'raven': data_files},
+    package_data={'ravenjs': data_files},
 )
