@@ -1,3 +1,35 @@
+// parseUri 1.2.2
+// (c) Steven Levithan <stevenlevithan.com>
+// MIT License
+
+function parseUri (str) {
+  var o   = parseUri.options,
+    m   = o.parser[o.strictMode ? "strict" : "loose"].exec(str),
+    uri = {},
+    i   = 14;
+
+  while (i--) uri[o.key[i]] = m[i] || "";
+
+  uri[o.q.name] = {};
+  uri[o.key[12]].replace(o.q.parser, function ($0, $1, $2) {
+    if ($1) uri[o.q.name][$1] = $2;
+  });
+
+  return uri;
+}
+
+parseUri.options = {
+  strictMode: false,
+  key: ["source","protocol","authority","userInfo","user","password","host","port","relative","path","directory","file","query","anchor"],
+  q:   {
+    name:   "queryKey",
+    parser: /(?:^|&)([^&=]*)=?([^&]*)/g
+  },
+  parser: {
+    strict: /^(?:([^:\/?#]+):)?(?:\/\/((?:(([^:@]*)(?::([^:@]*))?)?@)?([^:\/?#]*)(?::(\d*))?))?((((?:[^?#\/]*\/)*)([^?#]*))(?:\?([^#]*))?(?:#(.*))?)/,
+    loose:  /^(?:(?![^:@]+:[^:@\/]*@)([^:\/?#.]+):)?(?:\/\/)?((?:(([^:@]*)(?::([^:@]*))?)?@)?([^:\/?#]*)(?::(\d*))?)(((\/(?:[^?#](?![^?#\/]*\.[^?#\/.]+(?:[?#]|$)))*\/?)?([^?#\/]*))(?:\?([^#]*))?(?:#(.*))?)/
+  }
+};
 // Raven.js
 //
 // Originally based on the Arecibo JavaScript client.
@@ -9,6 +41,8 @@
 (function(){
     // Save a reference to the global object (`window` in the browser, `global`
     // on the server).
+    "use strict";
+
     var root = this;
 
     var Raven;
@@ -16,12 +50,17 @@
 
     var self = Raven;
 
-    Raven.VERSION = '@VERSION';
+    Raven.VERSION = '0.7.1';
 
     // jQuery, Zepto, or Ender owns the `$` variable.
     var $ = root.jQuery || root.Zepto || root.ender;
+    if (typeof($) === 'undefined') {
+        throw "Raven requires one of the following libraries: jQuery, Zepto, or ender";
+    }
+    if (root.jQuery === $ && $.fn.jquery < '1.5.0') {
+        throw "A newer version of jQuery is required";
+    }
 
-    Raven.loaded = false;
     Raven.options = {
         secretKey: undefined,  // The global key if not using project auth
         publicKey: undefined,  // Leave as undefined if not using project auth
@@ -29,6 +68,7 @@
         projectId: 1,
         logger: 'javascript',
         site: undefined,
+        dataCallback: null,
         signatureUrl: undefined,
         fetchHeaders: false,  // Generates a synchronous request to your server
         testMode: false,  // Disables some things that randomize the signature
@@ -55,14 +95,14 @@
         });
 
         // Expand server base URLs into API URLs
-        $.each(self.options['servers'], function(i, server) {
+        $.each(self.options.servers, function(i, server) {
             // Add a trailing slash if one isn't provided
             if (server.slice(-1) !== '/') {
                 server += '/';
             }
-            servers.push(server + 'api/' + self.options['projectId'] + '/store/');
+            servers.push(server + 'api/' + self.options.projectId + '/store/');
         });
-        self.options['servers'] = servers;
+        self.options.servers = servers;
 
     };
 
@@ -92,11 +132,14 @@
         var headers = {};
 
         if (self.options.fetchHeaders && !self.options.testMode) {
-            headers = $.ajax({type: 'HEAD', url: root.location, async: false})
-                       .getAllResponseHeaders();
+            headers = $.ajax({
+                type: 'HEAD',
+                url: root.location,
+                async: false
+            }).getAllResponseHeaders();
         }
 
-        headers["Referer"] = document.referrer;
+        headers.Referer = document.referrer;
         headers["User-Agent"] = navigator.userAgent;
         return headers;
     };
@@ -116,10 +159,17 @@
 
     Raven.getSignature = function(message, timestamp, callback) {
         if (self.options.signatureUrl) {
-            $.post(self.options.signatureUrl, {
-                message: message, timestamp: timestamp
-            }, function(data) {
-                callback(data.signature);
+            $.ajax({
+                type: 'POST',
+                url: self.options.signatureUrl,
+                data: {
+                    message: message,
+                    timestamp: timestamp
+                },
+                dataType: 'json',
+                success: function(data) {
+                    callback(data.signature);
+                }
             });
         } else {
             callback();
@@ -139,8 +189,8 @@
         return header;
     };
 
-    Raven.captureException = function(e) {
-        var lineno, traceback, fileurl;
+    Raven.captureException = function(e, options) {
+        var label, lineno, fileurl, traceback;
 
         if (e.line) {  // WebKit
             lineno = e.line;
@@ -154,25 +204,85 @@
             fileurl = e.fileName;
         }
 
-        if (e.arguments && e.stack) {
-            traceback = this.chromeTraceback(e);
+        if (e["arguments"] && e.stack) {
+            traceback = self.chromeTraceback(e);
         } else if (e.stack) {
             // Detect edge cases where Chrome doesn't have 'arguments'
             if (e.stack.indexOf('@') == -1) {
-                traceback = this.chromeTraceback(e);
+                traceback = self.chromeTraceback(e);
             } else {
-                traceback = this.firefoxOrSafariTraceback(e);
+                traceback = self.firefoxOrSafariTraceback(e);
             }
         } else {
             traceback = [{"filename": fileurl, "lineno": lineno}];
-            traceback = traceback.concat(this.otherTraceback(arguments.callee));
+            traceback = traceback.concat(self.otherTraceback(Raven.captureException));
         }
 
-        self.process(e, fileurl, lineno, traceback);
+        self.process(e, fileurl, lineno, traceback, options);
     };
 
-    Raven.captureMessage = function(msg) {
-        self.process(msg);
+    Raven.captureMessage = function(msg, options) {
+        var data = self.arrayMerge({
+            'message': msg
+        }, options);
+        
+        self.send(data);
+    };
+
+    Raven.process = function(message, fileurl, lineno, traceback, options) {
+        var type, stacktrace, label, data;
+
+        if (typeof(message) === 'object') {
+            type = message.name;
+            message = message.message;
+        }
+
+        if ($.inArray(message, self.options.ignoreErrors) >= 0) {
+            return;
+        }
+
+
+        if (traceback) {
+            stacktrace = {"frames": traceback};
+            fileurl = fileurl || traceback[0].filename;
+        } else if (fileurl) {
+            stacktrace = {
+                "frames": [{
+                    "filename": fileurl,
+                    "lineno": lineno
+                }]
+            };
+        }
+
+        for (var i = 0; i < self.options.ignoreUrls.length; i++) {
+            if (self.options.ignoreUrls[i].test(fileurl)) {
+                return;
+            }
+        }
+
+        label = lineno ? message + " at " + lineno : message;
+
+        data = self.arrayMerge({
+            "sentry.interfaces.Exception": {
+                "type": type,
+                "value": message
+            },
+            "sentry.interfaces.Stacktrace": stacktrace,
+            "culprit": fileurl,
+            "message": label
+        }, options);
+
+        self.send(data);
+    };
+
+    Raven.arrayMerge = function(arr1, arr2) {
+        if (typeof(arr2) === "undefined") {
+            return arr1;
+        }
+        $.each(arr2, function(key, value){
+            arr1[key] = value;
+        });
+        return arr1;
     };
 
     Raven.trimString = function(str) {
@@ -300,9 +410,9 @@
             traceback = [],
             max = 9;
         while (callee && traceback.length < max) {
-            fn = callee.name || (this.funcNameRE.test(callee.toString()) ? RegExp.$1 || ANON : ANON);
-            if (callee.arguments) {
-                args = this.stringifyArguments(callee.arguments);
+            fn = callee.name || (self.funcNameRE.test(callee.toString()) ? RegExp.$1 || ANON : ANON);
+            if (callee["arguments"]) {
+                args = self.stringifyArguments(callee["arguments"]);
             } else {
                 args = undefined;
             }
@@ -353,59 +463,59 @@
         return results;
     };
 
-    Raven.process = function(message, fileurl, lineno, traceback, timestamp) {
-        var label, stacktrace, data, encoded_msg, type,
+    Raven.pad = function(n, amount) {
+        var i,
+            len = ('' + n).length;
+        if (typeof(amount) === "undefined") {
+            amount = 2;
+        }
+        if (len >= amount) {
+            return n;
+        }
+        for (i=0; i < (amount - len); i++) {
+            n = '0' + n;
+        }
+        return n;
+    };
+
+    Raven.dateToISOString = function(date) {
+        if (Date.prototype.toISOString) {
+            return date.toISOString();
+        }
+        
+        return date.getUTCFullYear() + '-' +
+            self.pad(date.getUTCMonth() + 1) + '-' +
+            self.pad(date.getUTCDate()) + 'T' +
+            self.pad(date.getUTCHours()) + ':' +
+            self.pad(date.getUTCMinutes()) + ':' +
+            self.pad(date.getUTCSeconds()) + '.' +
+            self.pad(date.getUTCMilliseconds(), 3) + 'Z';
+    };
+
+    Raven.send = function(data) {
+        var encoded_msg,
+            timestamp= new Date().getTime(),
             url = root.location.protocol + '//' + root.location.host + root.location.pathname,
             querystring = root.location.search.slice(1);  // Remove the ?
 
-        if (typeof(message) === 'object') {
-            type = message.name;
-            message = message.message;
-        }
-        if ($.inArray(message, self.options.ignoreErrors) >= 0) {
-            return;
-        }
-
-        for (var i = 0; i < self.options.ignoreUrls.length; i++) {
-            if (self.options.ignoreUrls[i].test(fileurl)) {
-                return;
-            }
-        }
-
-        label = lineno ? message + " at " + lineno : message;
-
-        if (traceback) {
-            stacktrace = {"frames": traceback};
-            fileurl = fileurl || traceback[0].filename;
-        } else if (fileurl) {
-            stacktrace = {
-                "frames": [{
-                    "filename": fileurl,
-                    "lineno": lineno
-                }]
-            };
-        }
-
-        data = {
-            "message": label,
-            "culprit": fileurl,
-            "sentry.interfaces.Stacktrace": stacktrace,
-            "sentry.interfaces.Exception": {
-                "type": type,
-                "value": message
-            },
+        data = self.arrayMerge({
             "project": self.options.projectId,
             "logger": self.options.logger,
-            "site": self.options.site
-        };
+            "site": self.options.site,
+            "timestamp": new Date(),
+            "sentry.interfaces.Http": {
+                "url": url,
+                "querystring": querystring,
+                "headers": self.getHeaders()
+            }
+        }, data);
 
-        data["sentry.interfaces.Http"] = {
-            "url": url,
-            "querystring": querystring,
-            "headers": self.getHeaders()
-        };
+        if (typeof(self.options.dataCallback) == 'function') {
+            data = self.options.dataCallback(data);
+        }
 
-        timestamp = timestamp || (new Date()).getTime();
+        data.timestamp = self.dateToISOString(data.timestamp);
+
         encoded_msg = JSON.stringify(data);
         self.getSignature(encoded_msg, timestamp, function(signature) {
             var header = self.getAuthHeader(signature, timestamp);
@@ -414,6 +524,7 @@
                     type: 'POST',
                     url: server,
                     data: encoded_msg,
+                    dataType: 'json',
                     headers: {
                         // We send both headers, since Authentication may be blocked,
                         // and custom headers arent supported in IE9
