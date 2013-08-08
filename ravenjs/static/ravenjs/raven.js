@@ -1,4 +1,4 @@
-/*! Raven.js 1.0.7 | github.com/getsentry/raven-js */
+/*! Raven.js 1.0.8 | github.com/getsentry/raven-js */
 
 /*
  * Includes TraceKit
@@ -1213,7 +1213,7 @@ TK.remoteFetching = false;
  * @this {Raven}
  */
 var Raven = {
-    VERSION: '1.0.7',
+    VERSION: '1.0.8',
 
     /*
      * Allow multiple versions of Raven to be installed.
@@ -1653,7 +1653,7 @@ window.Raven = Raven;
 
 // AMD
 if (typeof define === 'function' && define.amd) {
-    define(function() { return Raven; });
+    define('raven', [], function() { return Raven; });
 }
 
 })(window);
