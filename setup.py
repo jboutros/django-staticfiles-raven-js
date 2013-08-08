@@ -26,7 +26,7 @@ for dirpath, dirnames, filenames in os.walk('ravenjs'):
 
 
 setup(
-    name='django-staticfiles-ravenjs',
+    name='django-staticfiles-raven-js',
     version=open("./VERSION").read(),
     description='ravenjs meets Django staticfiles',
     author='Chad Masso',
